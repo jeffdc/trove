@@ -61,15 +61,18 @@ const defaultOpTimeout = 60 * time.Second
 // a hung NAS mount from blocking the worker indefinitely.
 func dispatch(req protocol.Request) protocol.Response {
 	switch req.Op {
-	// These ops have their own timeout handling or are trivial stats.
+	// check_mount has its own internal timeout handling.
 	case "check_mount":
 		return ops.CheckMount(req)
+
+	// Stat ops can block on a stale NAS mount just like any other
+	// filesystem call, so they need timeout isolation too.
 	case "path_exists":
-		return ops.PathExists(req)
+		return supervisor.WithTimeout(req, ops.PathExists, defaultOpTimeout)
 	case "stat_path":
-		return ops.StatPath(req)
+		return supervisor.WithTimeout(req, ops.StatPath, defaultOpTimeout)
 	case "stat_paths":
-		return ops.StatPaths(req)
+		return supervisor.WithTimeout(req, ops.StatPaths, defaultOpTimeout)
 
 	// Filesystem I/O ops — wrapped with timeout isolation.
 	case "walk_tree":

@@ -60,8 +60,14 @@ let read_response t =
   Yojson.Safe.from_string line
 
 let call t ~op ~args =
-  let _id = send_request t ~op ~args in
+  let req_id = send_request t ~op ~args in
   let resp = read_response t in
+  let resp_id = json_member_exn "id" resp |> json_to_int in
+  if resp_id <> req_id then
+    failwith
+      (Printf.sprintf
+         "worker protocol desync: sent request id=%d, got response id=%d"
+         req_id resp_id);
   let ok = json_member_exn "ok" resp |> json_to_bool in
   if ok then Ok (json_member_exn "result" resp)
   else

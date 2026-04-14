@@ -92,7 +92,7 @@ type init_plan = {
   already_correct : file_record list;
   needs_move : (file_record * string) list;  (** record * target_path *)
   duplicates : file_record list;
-  quarantined : file_record list;
+  quarantined : (file_record * string) list;  (** record * resolved quarantine path *)
 }
 
 (** Convert file_status to/from the string stored in SQLite *)

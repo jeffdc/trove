@@ -20,10 +20,14 @@ type complete_result = {
 }
 
 let plan_complete db ~library_id =
-  (* Query each status category *)
+  (* Query each base status once.  file_status_to_string maps all Duplicate
+     variants to "duplicate" and all Quarantined variants to "quarantined",
+     so a single query per base status is sufficient and avoids double-counting. *)
   let imported_files = Db.query_files_by_status db Imported in
   let duplicate_files = Db.query_files_by_status db (Duplicate In_batch) in
-  let quarantined_files = Db.query_files_by_status db (Quarantined Hash_failed) in
+  let quarantined_files =
+    Db.query_files_by_status db (Quarantined Hash_failed)
+  in
   let discovered_files = Db.query_files_by_status db Discovered in
   let hashed_files = Db.query_files_by_status db Hashed in
   (* Verify each imported file has a matching entry by hash *)
@@ -33,7 +37,9 @@ let plan_complete db ~library_id =
         match fr.md5_hash with
         | None -> false
         | Some hash ->
-          let entries = Db.get_entries_by_hash db ~library_id ~md5_hash:hash in
+          let entries =
+            Db.get_entries_by_hash db ~library_id ~md5_hash:hash
+          in
           List.length entries > 0)
       imported_files
   in
@@ -61,10 +67,15 @@ let execute_complete db plan =
       can_complete = false;
     }
   else begin
-    let total = imported_count + duplicate_count + quarantined_count in
-    if total > 0 then
-      Db.delete_files_by_status db
-        [Imported; Duplicate In_batch; Quarantined Hash_failed];
+    (* Delete by specific ID, not by status, to avoid touching
+       file records that belong to other library operations. *)
+    let all_terminal =
+      plan.imported @ plan.duplicate @ plan.quarantined
+    in
+    List.iter
+      (fun (fr : file_record) -> Db.delete_file db fr.id)
+      all_terminal;
+    let total = List.length all_terminal in
     {
       imported_count;
       duplicate_count;

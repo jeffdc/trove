@@ -85,7 +85,7 @@ type init_plan = {
   already_correct : file_record list;
   needs_move : (file_record * string) list;
   duplicates : file_record list;
-  quarantined : file_record list;
+  quarantined : (file_record * string) list;
 }
 
 let file_status_to_string = function

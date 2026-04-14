@@ -41,8 +41,8 @@ let classify_for_init db ~library_id ~hashed_ids ~quarantined_ids config =
         let basename = Filename.basename fr.source_path in
         let normalized = Pipeline.normalize_filename basename in
         let qpath = config.Config.quarantine.path ^ normalized in
-        let _resolved = Pipeline.resolve_path qpath claimed in
-        fr)
+        let resolved = Pipeline.resolve_path qpath claimed in
+        (fr, resolved))
       quarantined_records
   in
   (* 5. Process hashed files, sorted by ID for determinism *)
@@ -82,7 +82,6 @@ let classify_for_init db ~library_id ~hashed_ids ~quarantined_ids config =
 (* ---------- execute_init ---------- *)
 
 let execute_init db worker (lib : Domain.library) (plan : Domain.init_plan) =
-  let config = Config.of_json_string lib.config_json in
   let indexed = ref 0 in
   let moved = ref 0 in
   let quarantined_count = ref 0 in
@@ -133,12 +132,9 @@ let execute_init db worker (lib : Domain.library) (plan : Domain.init_plan) =
           Db.delete_file db fr.id;
           incr moved))
     plan.needs_move;
-  (* 3. Handle quarantined files *)
+  (* 3. Handle quarantined files — use resolved path from plan *)
   List.iter
-    (fun (fr : Domain.file_record) ->
-      let basename = Filename.basename fr.source_path in
-      let normalized = Pipeline.normalize_filename basename in
-      let q_rel = config.Config.quarantine.path ^ normalized in
+    (fun ((fr : Domain.file_record), q_rel) ->
       let dst = lib.location ^ "/" ^ q_rel in
       let parent = Filename.dirname dst in
       match Worker_client.mkdir_all worker parent with
