@@ -443,8 +443,8 @@ let () =
                 (Some "2024/01/Canon/photo.jpg")
                 rec_.target_path;
               Db.close db);
-          Alcotest.test_case "no capture_date skips target_path" `Quick
-            (fun () ->
+          Alcotest.test_case "no capture_date falls back to file_modify_date"
+            `Quick (fun () ->
               let db = Db.open_db ":memory:" in
               let r =
                 Db.insert_file db ~source_path:"/src/nodateimg.jpg"
@@ -457,7 +457,24 @@ let () =
               let records = Db.query_files_by_ids db [ r.id ] in
               let rec_ = List.hd records in
               Alcotest.(check (option string))
-                "no target" None rec_.target_path;
+                "target from modify date"
+                (Some "2024/01/Unknown_Model/nodateimg.jpg")
+                rec_.target_path;
+              Db.close db);
+          Alcotest.test_case "bad date quarantines file" `Quick (fun () ->
+              let db = Db.open_db ":memory:" in
+              let r =
+                Db.insert_file db ~source_path:"/src/baddate.jpg"
+                  ~source_type:"local" ~file_size:100
+                  ~file_modify_date:"not-a-date"
+              in
+              let config = Config.default in
+              let result = Pipeline.compute_paths db [ r.id ] config in
+              Alcotest.(check int) "filtered out" 0 (List.length result);
+              let records = Db.query_files_by_ids db [ r.id ] in
+              let rec_ = List.hd records in
+              Alcotest.(check string) "quarantined"
+                "quarantined" (Domain.file_status_to_string rec_.status);
               Db.close db);
           Alcotest.test_case "empty list returns empty" `Quick (fun () ->
               let db = Db.open_db ":memory:" in

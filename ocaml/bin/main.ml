@@ -220,8 +220,12 @@ let add_cmd =
         Printf.printf "  Path conflicts:       %d\n" summary.path_conflicts;
         Printf.printf "  Errors:               %d\n" summary.errors;
 
-        (* Note: completion step skipped — Complete module not yet available *)
-        Printf.printf "\nNote: completion step skipped (module not yet implemented).\n"))
+        (* Complete: clean up terminal file records *)
+        let complete_result = Complete.complete_import db ~library_id:lib.id in
+        if complete_result.can_complete then
+          Printf.printf "\nCleaned up %d file records.\n" complete_result.records_cleaned
+        else
+          Printf.printf "\n%d unaccounted files remain.\n" complete_result.unaccounted_count))
   in
   let term = Term.(const run $ db_path $ name_arg $ source_arg) in
   Cmd.v (Cmd.info "add" ~doc:"Import files from a source into a library") term
@@ -315,8 +319,12 @@ let init_cmd =
         Printf.printf "  Quarantined: %d\n" result.quarantined_count;
         Printf.printf "  Errors:      %d\n" result.errors;
 
-        (* Note: completion step skipped — Complete module not yet available *)
-        Printf.printf "\nNote: completion step skipped (module not yet implemented).\n"))
+        (* Complete: clean up terminal file records *)
+        let complete_result = Complete.complete_import db ~library_id:lib.id in
+        if complete_result.can_complete then
+          Printf.printf "\nCleaned up %d file records.\n" complete_result.records_cleaned
+        else
+          Printf.printf "\n%d unaccounted files remain.\n" complete_result.unaccounted_count))
   in
   let term = Term.(const run $ db_path $ name_arg) in
   Cmd.v (Cmd.info "init" ~doc:"Initialize/organize files already in a library") term

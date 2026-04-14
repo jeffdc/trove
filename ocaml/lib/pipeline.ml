@@ -255,7 +255,11 @@ let discover_and_persist_from_items db ~source_path ~source_type items ~skip_pat
   let skip_count = ref 0 in
   List.iter
     (fun (item : Worker_client.walk_item) ->
-      let abs_path = item.path in
+      let abs_path =
+        if Filename.is_relative item.path then
+          Filename.concat source_path item.path
+        else item.path
+      in
       let rel_path = relative_path ~root:source_path abs_path in
       if StringSet.mem rel_path skip_paths then
         incr skip_count
@@ -332,9 +336,20 @@ let compute_paths db ids config =
   if ids = [] then []
   else begin
     let records = Db.query_files_by_ids db ids in
+    let quarantined = ref [] in
     List.iter
       (fun (rec_ : Domain.file_record) ->
-        match rec_.capture_date with
+        let date =
+          match rec_.capture_date with
+          | Some _ as d -> d
+          | None ->
+            (* Fallback to file_modify_date *)
+            match parse_iso_date rec_.file_modify_date with
+            | Some (y, _, _) when y >= 1990 && y <= 2099 ->
+              Some rec_.file_modify_date
+            | _ -> None
+        in
+        match date with
         | Some capture_date ->
           let original_filename = Filename.basename rec_.source_path in
           let target =
@@ -344,9 +359,15 @@ let compute_paths db ids config =
           in
           (match target with
            | Some t ->
-             Db.update_file db rec_.id [ ("target_path", Some t) ]
+             Db.update_file db rec_.id
+               [ ("target_path", Some t);
+                 ("capture_date", Some capture_date) ]
            | None -> ())
-        | None -> ())
+        | None ->
+          Db.update_file db rec_.id
+            [ ("status", Some "quarantined");
+              ("error_message", Some "no_date") ];
+          quarantined := rec_.id :: !quarantined)
       records;
-    ids
+    List.filter (fun id -> not (List.mem id !quarantined)) ids
   end

@@ -1,47 +1,36 @@
-.PHONY: help test check format fix lint build install clean all ci done-checks
+WORKER_DIR   := worker
+OCAML_DIR    := ocaml
+WORKER_BIN   := $(WORKER_DIR)/worker
+TROVE_BIN    := $(OCAML_DIR)/_build/default/bin/main.exe
+
+.PHONY: help build build-worker build-ocaml test test-worker test-ocaml clean
 
 help:
 	@echo "Available targets:"
-	@echo "  test      - Run pytest test suite"
-	@echo "  check     - Run ruff and mypy checks"
-	@echo "  format    - Format code with ruff"
-	@echo "  fix       - Auto-fix ruff issues"
-	@echo "  lint      - Alias for 'check'"
-	@echo "  build     - Build the package"
-	@echo "  install   - Install package in editable mode with dev dependencies"
-	@echo "  clean     - Remove build artifacts"
-	@echo "  all       - Run format, check, and test"
-	@echo "  ci        - Run full CI pipeline (check + test)"
-	@echo "  done-checks - Hard checks run by mull done (check + test)"
+	@echo "  build          - Build Go worker and OCaml binary"
+	@echo "  build-worker   - Build Go worker only"
+	@echo "  build-ocaml    - Build OCaml binary only"
+	@echo "  test           - Run all tests (Go + OCaml)"
+	@echo "  test-worker    - Run Go worker tests"
+	@echo "  test-ocaml     - Run OCaml tests"
+	@echo "  clean          - Remove build artifacts"
 
-test:
-	python -m pytest tests/ -v
+build: build-worker build-ocaml
 
-check:
-	ruff check src tests
-	mypy src/trove
+build-worker:
+	cd $(WORKER_DIR) && go build -o worker ./cmd/worker
 
-format:
-	ruff format src tests
+build-ocaml:
+	cd $(OCAML_DIR) && opam exec --switch=5.3.0 -- dune build
 
-fix:
-	ruff check src tests --fix
+test: test-worker test-ocaml
 
-lint: check
+test-worker:
+	cd $(WORKER_DIR) && go test ./...
 
-build:
-	python -m build
-
-install:
-	pip install -e ".[dev]"
+test-ocaml: build-worker
+	cd $(OCAML_DIR) && opam exec --switch=5.3.0 -- dune test --force
 
 clean:
-	rm -rf build/ dist/ *.egg-info .pytest_cache .mypy_cache
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	find . -type f -name "*.pyc" -delete 2>/dev/null || true
-
-all: format check test
-
-ci: check test
-
-done-checks: check test
+	rm -f $(WORKER_BIN)
+	cd $(OCAML_DIR) && opam exec --switch=5.3.0 -- dune clean
