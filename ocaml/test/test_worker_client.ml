@@ -53,14 +53,14 @@ let fail_error e = Alcotest.fail ("expected Ok, got Error: " ^ show_worker_error
 (* ---- lifecycle ---- *)
 
 let test_start_and_stop () =
-  let w = start ~worker_path:(worker_path ()) in
+  let w = start ~worker_path:(worker_path ()) () in
   Alcotest.(check bool) "worker is alive after start" true (is_alive w);
   stop w;
   Alcotest.(check bool) "worker is dead after stop" false (is_alive w)
 
 let test_worker_stays_alive () =
   with_tmp_dir (fun dir ->
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           (* issue two operations in a row *)
           let r1 = path_exists w (Filename.concat dir "nope1") in
@@ -73,7 +73,7 @@ let test_worker_stays_alive () =
 
 let test_check_mount_real_dir () =
   with_tmp_dir (fun dir ->
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match check_mount w ~path:dir ~timeout_seconds:5 with
           | Ok avail ->
@@ -81,7 +81,7 @@ let test_check_mount_real_dir () =
           | Error e -> fail_error e))
 
 let test_check_mount_nonexistent () =
-  let w = start ~worker_path:(worker_path ()) in
+  let w = start ~worker_path:(worker_path ()) () in
   Fun.protect ~finally:(fun () -> stop w) (fun () ->
       match check_mount w ~path:"/no/such/path/at/all" ~timeout_seconds:5 with
       | Ok avail ->
@@ -97,7 +97,7 @@ let test_path_exists_real_file () =
   with_tmp_dir (fun dir ->
       let path = Filename.concat dir "exists.txt" in
       write_file path "hello";
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match path_exists w path with
           | Ok b -> Alcotest.(check bool) "file exists" true b
@@ -106,7 +106,7 @@ let test_path_exists_real_file () =
 let test_path_exists_missing () =
   with_tmp_dir (fun dir ->
       let path = Filename.concat dir "missing.txt" in
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match path_exists w path with
           | Ok b -> Alcotest.(check bool) "file does not exist" false b
@@ -118,7 +118,7 @@ let test_stat_path () =
   with_tmp_dir (fun dir ->
       let path = Filename.concat dir "stat_me.txt" in
       write_file path "12345";
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match stat_path w path with
           | Ok sr ->
@@ -135,7 +135,7 @@ let test_walk_tree () =
       let sub = Filename.concat dir "sub" in
       Unix.mkdir sub 0o755;
       write_file (Filename.concat sub "c.jpg") "photo2";
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match
             walk_tree w ~root:dir ~extensions:[ ".jpg" ] ~exclude_patterns:[]
@@ -156,7 +156,7 @@ let test_hash_path () =
   with_tmp_dir (fun dir ->
       let path = Filename.concat dir "hash_me.txt" in
       write_file path "hello";
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match hash_path w path with
           | Ok md5 ->
@@ -172,7 +172,7 @@ let test_copy_and_hash () =
       let src = Filename.concat dir "original.txt" in
       let dst = Filename.concat dir "copied.txt" in
       write_file src "copy me";
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match copy_and_hash w ~src ~dst with
           | Ok md5 ->
@@ -189,7 +189,7 @@ let test_move_file () =
       let src = Filename.concat dir "to_move.txt" in
       let dst = Filename.concat dir "moved.txt" in
       write_file src "move me";
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match move_file w ~src ~dst ~expected_hash:None with
           | Ok _md5 ->
@@ -202,7 +202,7 @@ let test_move_file () =
 let test_mkdir_all () =
   with_tmp_dir (fun dir ->
       let target = Filename.concat dir "a/b/c" in
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match mkdir_all w target with
           | Ok () ->
@@ -215,7 +215,7 @@ let test_unlink_path () =
   with_tmp_dir (fun dir ->
       let path = Filename.concat dir "delete_me.txt" in
       write_file path "bye";
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match unlink_path w path with
           | Ok () ->
@@ -230,7 +230,7 @@ let test_remove_empty_dirs () =
       ignore
         (Sys.command
            (Printf.sprintf "mkdir -p %s" (Filename.quote nested)));
-      let w = start ~worker_path:(worker_path ()) in
+      let w = start ~worker_path:(worker_path ()) () in
       Fun.protect ~finally:(fun () -> stop w) (fun () ->
           match remove_empty_dirs w ~path:nested ~stop_at:dir with
           | Ok () ->

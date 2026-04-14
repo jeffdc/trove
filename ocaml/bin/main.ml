@@ -27,7 +27,7 @@ let with_db db_opt f =
 
 let with_worker f =
   let path = find_worker_path () in
-  let w = Worker_client.start ~worker_path:path in
+  let w = Worker_client.start ~worker_path:path () in
   Fun.protect ~finally:(fun () -> Worker_client.stop w) (fun () -> f w)
 
 let require_library db name =

@@ -308,7 +308,7 @@ let () =
               let db = Db.open_db ":memory:" in
               let lib = create_test_library db () in
               let worker =
-                Worker_client.start ~worker_path:(worker_path ())
+                Worker_client.start ~worker_path:(worker_path ()) ()
               in
               (* Create a hashed file that's already at the right place *)
               let file_id =
@@ -350,7 +350,7 @@ let () =
                   ~config_json:(Config.to_json_string Config.default)
               in
               let worker =
-                Worker_client.start ~worker_path:(worker_path ())
+                Worker_client.start ~worker_path:(worker_path ()) ()
               in
               (* Create source file on disk *)
               let src_dir = tmp_dir ^ "/unsorted" in
@@ -405,7 +405,7 @@ let () =
                   ~config_json:(Config.to_json_string Config.default)
               in
               let worker =
-                Worker_client.start ~worker_path:(worker_path ())
+                Worker_client.start ~worker_path:(worker_path ()) ()
               in
               (* File record pointing to non-existent source *)
               let file_id =

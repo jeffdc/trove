@@ -1,12 +1,20 @@
-(** Client for the Go worker child process. *)
+(** Client for the Go worker child process.
+
+    Includes a watchdog: if the worker does not respond within
+    [response_timeout] seconds, it is killed (SIGKILL) and automatically
+    restarted on the next call.  This prevents leaked goroutines from
+    accumulating when NAS mounts hang. *)
 
 type stat_result = { size : int; mtime : string; is_dir : bool }
 type walk_item = { path : string; size : int; mtime : string }
 
 type t = {
-  pid : int;
-  to_worker : out_channel;    (** connected to worker's stdin *)
-  from_worker : in_channel;   (** connected to worker's stdout *)
+  worker_path : string;
+  response_timeout : float;  (** seconds; 0 = no timeout *)
+  mutable pid : int;
+  mutable to_worker : out_channel;
+  mutable from_worker : in_channel;
+  mutable from_worker_fd : Unix.file_descr;
   mutable next_id : int;
   mutable alive : bool;
 }
@@ -59,50 +67,21 @@ let read_response t =
   let line = input_line t.from_worker in
   Yojson.Safe.from_string line
 
-let call t ~op ~args =
-  let req_id = send_request t ~op ~args in
-  let resp = read_response t in
-  let resp_id = json_member_exn "id" resp |> json_to_int in
-  if resp_id <> req_id then
-    failwith
-      (Printf.sprintf
-         "worker protocol desync: sent request id=%d, got response id=%d"
-         req_id resp_id);
-  let ok = json_member_exn "ok" resp |> json_to_bool in
-  if ok then Ok (json_member_exn "result" resp)
-  else
-    let err = json_member_exn "error" resp in
-    let kind = json_member_exn "kind" err |> json_to_string in
-    let message = json_member_exn "message" err |> json_to_string in
-    let we = Domain.worker_error_of_string kind in
-    (* For io_error, attach the message if the generic parsing left it empty *)
-    let we =
-      match we with
-      | Domain.Io_error "" -> Domain.Io_error message
-      | _ -> we
-    in
-    Error we
-
 (* ---- lifecycle ---- *)
 
-let start ~worker_path =
-  (* Create pipes with cloexec so ALL FDs are closed on exec.
-     Unix.create_process uses dup2 to wire child's stdin/stdout to FDs 0/1,
-     and dup2 creates new FDs without CLOEXEC. So the child keeps only FDs
-     0, 1, 2 — the leaked parent-side pipe ends are closed by exec. *)
-  let in_read, in_write = Unix.pipe ~cloexec:true () in    (* worker's stdin *)
-  let out_read, out_write = Unix.pipe ~cloexec:true () in  (* worker's stdout *)
+(** Spawn a worker process and read its hello message.
+    Returns (pid, to_worker, from_worker, from_worker_fd). *)
+let spawn_worker worker_path =
+  let in_read, in_write = Unix.pipe ~cloexec:true () in
+  let out_read, out_write = Unix.pipe ~cloexec:true () in
   let pid =
-    Unix.create_process worker_path [| worker_path |] in_read out_write Unix.stderr
+    Unix.create_process worker_path [| worker_path |]
+      in_read out_write Unix.stderr
   in
-  (* Close the child-side ends in the parent *)
   Unix.close in_read;
   Unix.close out_write;
   let to_worker = Unix.out_channel_of_descr in_write in
   let from_worker = Unix.in_channel_of_descr out_read in
-  let t =
-    { pid; to_worker; from_worker; next_id = 1; alive = true }
-  in
   (* Read and verify the hello message *)
   let hello_line = input_line from_worker in
   let hello = Yojson.Safe.from_string hello_line in
@@ -112,15 +91,85 @@ let start ~worker_path =
   if version <> 1 then
     failwith
       (Printf.sprintf "unsupported worker protocol version: %d" version);
-  t
+  (pid, to_worker, from_worker, out_read)
 
-let stop t =
+let kill_worker t =
   if t.alive then begin
     t.alive <- false;
+    (try Unix.kill t.pid Sys.sigkill with Unix.Unix_error _ -> ());
     (try close_out t.to_worker with _ -> ());
     (try close_in t.from_worker with _ -> ());
-    (try ignore (Unix.waitpid [] t.pid) with _ -> ())
+    (try ignore (Unix.waitpid [] t.pid) with Unix.Unix_error _ -> ())
   end
+
+let restart_worker t =
+  kill_worker t;
+  let pid, to_w, from_w, fd = spawn_worker t.worker_path in
+  t.pid <- pid;
+  t.to_worker <- to_w;
+  t.from_worker <- from_w;
+  t.from_worker_fd <- fd;
+  t.next_id <- 1;
+  t.alive <- true
+
+(** Wait for data on the worker's stdout, with timeout.
+    Returns true if data is available, false on timeout. *)
+let wait_for_response t =
+  if t.response_timeout <= 0.0 then true  (* no timeout *)
+  else
+    match Unix.select [ t.from_worker_fd ] [] [] t.response_timeout with
+    | _ :: _, _, _ -> true
+    | [], _, _ -> false
+
+let call t ~op ~args =
+  if not t.alive then restart_worker t;
+  let req_id = send_request t ~op ~args in
+  if not (wait_for_response t) then begin
+    (* Worker did not respond in time — kill and restart *)
+    kill_worker t;
+    Error Domain.Timeout
+  end
+  else
+    match read_response t with
+    | resp ->
+      let resp_id = json_member_exn "id" resp |> json_to_int in
+      if resp_id <> req_id then
+        failwith
+          (Printf.sprintf
+             "worker protocol desync: sent request id=%d, got response id=%d"
+             req_id resp_id);
+      let ok = json_member_exn "ok" resp |> json_to_bool in
+      if ok then Ok (json_member_exn "result" resp)
+      else
+        let err = json_member_exn "error" resp in
+        let kind = json_member_exn "kind" err |> json_to_string in
+        let message = json_member_exn "message" err |> json_to_string in
+        let we = Domain.worker_error_of_string kind in
+        let we =
+          match we with
+          | Domain.Io_error "" -> Domain.Io_error message
+          | _ -> we
+        in
+        Error we
+    | exception End_of_file ->
+      (* Worker crashed — kill to clean up, will restart on next call *)
+      kill_worker t;
+      Error (Domain.Io_error "worker process died unexpectedly")
+
+let start ?(response_timeout = 120.0) ~worker_path () =
+  let pid, to_w, from_w, fd = spawn_worker worker_path in
+  {
+    worker_path;
+    response_timeout;
+    pid;
+    to_worker = to_w;
+    from_worker = from_w;
+    from_worker_fd = fd;
+    next_id = 1;
+    alive = true;
+  }
+
+let stop t = kill_worker t
 
 let is_alive t =
   if not t.alive then false
