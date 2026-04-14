@@ -76,6 +76,8 @@ trove_audit.log
 
 # Build artifacts
 *.log
+worker/worker
+ocaml/_build/
 
 # Worktrees
 .worktrees/
