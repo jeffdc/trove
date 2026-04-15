@@ -65,19 +65,19 @@ let create_test_library db ?(name = "photos") ?(location = "/lib/photos") () =
   Db.create_library db ~name ~location
     ~config_json:(Config.to_json_string Config.default)
 
-(* Locate worker binary — same approach as test_worker_client.ml *)
+(* Tests intentionally require an explicit worker path so they do not depend
+   on the repo layout or hard-coded local machine paths. *)
 let worker_path () =
-  let env_path =
-    Sys.getenv_opt "GROVE_WORKER_PATH" |> Option.value ~default:""
-  in
-  let candidates =
-    List.filter (fun s -> s <> "")
-      [ env_path; "../worker/worker";
-        "/path/to/trove/.worktrees/go-ocaml-rewrite/worker/worker" ]
-  in
-  match List.find_opt Sys.file_exists candidates with
-  | Some p -> p
-  | None -> failwith "Cannot find worker binary"
+  match Sys.getenv_opt "GROVE_WORKER_PATH" with
+  | Some p when Sys.file_exists p -> p
+  | Some p ->
+      failwith
+        (Printf.sprintf
+           "GROVE_WORKER_PATH is set but does not point to an existing file: %s"
+           p)
+  | None ->
+      failwith
+        "GROVE_WORKER_PATH must point to a built worker binary for OCaml tests"
 
 (* Custom Alcotest testable for init_result *)
 let init_result_testable =

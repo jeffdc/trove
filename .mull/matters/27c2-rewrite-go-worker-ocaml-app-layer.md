@@ -1,9 +1,9 @@
 ---
-status: planned
+status: refined
 created: 2026-04-13
-updated: 2026-05-06
-docs: [docs/go-port-plan.md, docs/generic-go-worker.md, docs/ocaml-layer-on-worker.md, docs/intake-algorithm.md]
-relates: [6cc8, 7053, 1f53, 905e]
+updated: 2026-04-15
+docs: [docs/go-port-plan.md, docs/generic-go-worker.md, docs/ocaml-layer-on-worker.md, docs/intake-algorithm.md, docs/worker-protocol-contract.md, docs/worker-repo-extraction-plan.md]
+relates: [6cc8, 7053]
 ---
 
 # Rewrite: Go worker + OCaml app layer
@@ -32,6 +32,39 @@ Existing design docs in `docs/` remain the authoritative reference:
 - `generic-go-worker.md` — worker scope, API, error model, batching
 - `ocaml-layer-on-worker.md` — OCaml module layout, type design, testing
 - `intake-algorithm.md` — behavioral spec for add/init workflows
+- `worker-repo-extraction-plan.md` — staged plan for extracting the Go worker
+  into its own repository
+
+## Current Follow-On Direction
+
+The worker is now far enough along that extraction into its own repo should be
+planned explicitly rather than left implicit in the original rewrite matter.
+
+The current working position is:
+
+- keep the worker media-agnostic
+- extract it before `reprise` adopts it directly
+- treat protocol, timeout behavior, and binary-path consumption as the main
+  pre-extraction contracts
+- avoid coupling extraction with broader application redesign
+
+## Current Status
+
+This matter now spans both the architectural rewrite and the worker extraction
+work that fell out of it.
+
+What is true now:
+
+- the worker protocol has been expanded and written down
+- the Go worker has been imported into the separate `grove` repo
+- `trove` now consumes the worker as an external binary or sibling checkout
+- the in-tree `worker/` source tree has been removed from `trove`
+- the remaining major rewrite work is in the OCaml application layer, not the
+  worker packaging boundary
+
+That means the worker-extraction part of this matter is no longer speculative.
+It is effectively in transition-to-stable mode, with the remaining work focused
+on CI/release consumption and finishing the OCaml-side reshape.
 
 ## Implementation Plan
 
@@ -48,7 +81,12 @@ Existing design docs in `docs/` remain the authoritative reference:
 
 ### Phase 1: Go Worker
 
-The worker is independently buildable, testable, and deployable. It has no knowledge of trove or any application. It lives in its own directory (initially `worker/` in the trove repo, extractable to its own repo later when reprise needs it).
+Status: substantially complete, with ongoing protocol hardening and worker repo
+maintenance now happening in `grove`.
+
+The worker is independently buildable, testable, and deployable. It has no
+knowledge of trove or any application. It began life under `trove/worker/` and
+has now been extracted into the separate `grove` repo.
 
 #### Task 1: Project scaffold and IPC protocol
 
@@ -197,6 +235,9 @@ Spawn the worker binary as a subprocess. Send JSON requests over stdin, read res
 ---
 
 ### Phase 2: OCaml App Layer
+
+Status: in progress. The rewrite still lives or dies on the quality of this
+layer, especially around expression of rules, validation, and recovery logic.
 
 #### Task 9: Project scaffold and build
 
@@ -432,6 +473,10 @@ After import/init, verify all files are accounted for (imported, duplicate, or q
 
 ### Phase 3: Migration and Cutover
 
+Status: partially complete. The worker cutover has already happened in the
+rewrite worktree; the remaining cutover is about finishing the OCaml app layer
+and retiring the Python implementation cleanly.
+
 #### Task 19: Build integration
 
 **Files:**
@@ -439,7 +484,10 @@ After import/init, verify all files are accounted for (imported, duplicate, or q
 - Modify: `pyproject.toml` (remove or archive)
 
 **Behavior:**
-Single `make build` that builds both the Go worker and the OCaml binary. `make test` runs both test suites. The OCaml binary knows where to find the worker binary (compiled-in path or adjacent-binary discovery). Consider bundling both into a single distribution directory.
+`trove` should build and test the OCaml layer while consuming the worker from
+`grove`. Local development may use a sibling checkout by default. CI should
+build the worker from `grove` explicitly and pass the path in through
+`GROVE_WORKER_PATH` or an equivalent build variable.
 
 #### Task 20: Side-by-side validation
 
@@ -455,7 +503,10 @@ This is manual validation, not automated tests. Use existing libraries as test f
 #### Task 21: Cutover
 
 **Behavior:**
-Delete `src/trove/`, `tests/`, `pyproject.toml`, and Python-related config. Move `worker/` and `ocaml/` to top level (or keep the directory structure if it's clean). Update any documentation. Merge branch to main.
+Delete `src/trove/`, `tests/`, `pyproject.toml`, and Python-related config once
+the OCaml rewrite is ready. The worker no longer needs any move inside `trove`
+because it already lives in `grove`. Update the remaining documentation and
+cut over to the OCaml CLI as the only supported implementation.
 
 ---
 

@@ -5,13 +5,27 @@ open Cmdliner
 (* -------------------------------------------------------------------------- *)
 
 let find_worker_path () =
+  let rec ancestor_dirs dir =
+    let parent = Filename.dirname dir in
+    if String.equal parent dir then [ dir ] else dir :: ancestor_dirs parent
+  in
+  let candidate_paths () =
+    let dirs = ancestor_dirs (Sys.getcwd ()) in
+    let make_path dir a b = Filename.concat (Filename.concat dir a) b in
+    List.map (fun dir -> make_path dir "grove" "worker") dirs
+  in
   match Sys.getenv_opt "GROVE_WORKER_PATH" with
   | Some p when Sys.file_exists p -> p
+  | Some p ->
+    failwith
+      (Printf.sprintf
+         "GROVE_WORKER_PATH is set but does not point to an existing file: %s" p)
   | _ ->
-    let candidates = [ "./worker/worker"; "../worker/worker" ] in
-    (match List.find_opt Sys.file_exists candidates with
+    (match List.find_opt Sys.file_exists (candidate_paths ()) with
      | Some p -> p
-     | None -> failwith "Cannot find worker binary. Set GROVE_WORKER_PATH.")
+     | None ->
+       failwith
+         "Cannot find worker binary. Set GROVE_WORKER_PATH to a built grove worker binary.")
 
 let resolve_db_path = function
   | Some p -> p
@@ -221,7 +235,9 @@ let add_cmd =
         Printf.printf "  Errors:               %d\n" summary.errors;
 
         (* Complete: clean up terminal file records *)
-        let complete_result = Complete.complete_import db ~library_id:lib.id in
+        let complete_result =
+          Complete.complete_import db ~library_id:lib.id ~file_ids:new_ids
+        in
         if complete_result.can_complete then
           Printf.printf "\nCleaned up %d file records.\n" complete_result.records_cleaned
         else
@@ -297,9 +313,16 @@ let init_cmd =
         Printf.printf "Computing target paths...\n";
         let path_ids = Pipeline.compute_paths db hashed_ids config in
 
-        (* Separate quarantined from hashed *)
-        let quarantined_records = Db.query_files_by_status db (Domain.Quarantined Domain.Hash_failed) in
-        let quarantined_ids = List.map (fun (r : Domain.file_record) -> r.id) quarantined_records in
+        (* Find quarantined files from this operation's IDs *)
+        let all_records = Db.query_files_by_ids db new_ids in
+        let quarantined_ids =
+          List.filter_map
+            (fun (r : Domain.file_record) ->
+              match r.status with
+              | Domain.Quarantined _ -> Some r.id
+              | _ -> None)
+            all_records
+        in
 
         (* Classify *)
         let plan = Init.classify_for_init db ~library_id:lib.id
@@ -320,7 +343,9 @@ let init_cmd =
         Printf.printf "  Errors:      %d\n" result.errors;
 
         (* Complete: clean up terminal file records *)
-        let complete_result = Complete.complete_import db ~library_id:lib.id in
+        let complete_result =
+          Complete.complete_import db ~library_id:lib.id ~file_ids:new_ids
+        in
         if complete_result.can_complete then
           Printf.printf "\nCleaned up %d file records.\n" complete_result.records_cleaned
         else

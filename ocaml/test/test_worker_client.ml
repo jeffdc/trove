@@ -1,27 +1,18 @@
 open Worker_client
 
-(** Locate the Go worker binary. Tries several candidate paths to handle
-    both direct execution and dune sandbox environments. *)
+(** Tests intentionally require an explicit worker path so they do not depend
+    on the repo layout or hard-coded local machine paths. *)
 let worker_path () =
-  let env_path =
-    Sys.getenv_opt "GROVE_WORKER_PATH" |> Option.value ~default:""
-  in
-  (* Absolute path that works regardless of cwd *)
-  let abs_path =
-    let ocaml_dir = Filename.dirname (Filename.dirname (Sys.executable_name)) in
-    Filename.concat (Filename.dirname ocaml_dir) "worker/worker"
-  in
-  let candidates =
-    List.filter (fun s -> s <> "")
-      [ env_path; "../worker/worker"; abs_path;
-        "/path/to/trove/.worktrees/go-ocaml-rewrite/worker/worker" ]
-  in
-  match List.find_opt Sys.file_exists candidates with
-  | Some p -> p
+  match Sys.getenv_opt "GROVE_WORKER_PATH" with
+  | Some p when Sys.file_exists p -> p
+  | Some p ->
+      failwith
+        (Printf.sprintf
+           "GROVE_WORKER_PATH is set but does not point to an existing file: %s"
+           p)
   | None ->
       failwith
-        (Printf.sprintf "worker binary not found (tried: %s, cwd=%s)"
-           (String.concat ", " candidates) (Sys.getcwd ()))
+        "GROVE_WORKER_PATH must point to a built worker binary for OCaml tests"
 
 (** Create a temp directory that is cleaned up after [f] runs. *)
 let with_tmp_dir f =

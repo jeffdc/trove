@@ -10,13 +10,15 @@
 # Prerequisites:
 #   - Python trove installed (python -m trove)
 #   - OCaml trove built (make build)
+#   - worker binary available via GROVE_WORKER_PATH or at the default sibling grove path
 #   - sqlite3 CLI available
 #
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TROVE_OCAML="$REPO_ROOT/ocaml/_build/default/bin/main.exe"
-WORKER_BIN="$REPO_ROOT/worker/worker"
+DEFAULT_WORKER_BIN="$REPO_ROOT/../../../grove/worker"
+WORKER_BIN="${GROVE_WORKER_PATH:-${WORKER_BIN:-$DEFAULT_WORKER_BIN}}"
 TIMESTAMP=$(date +%s)
 TEST_BASE="/tmp/trove_validate_${TIMESTAMP}"
 
@@ -60,7 +62,8 @@ if [ ! -x "$TROVE_OCAML" ]; then
 fi
 
 if [ ! -x "$WORKER_BIN" ]; then
-    echo "Error: Worker binary not found at $WORKER_BIN (run 'make build')"
+    echo "Error: worker binary not found at $WORKER_BIN"
+    echo "Set GROVE_WORKER_PATH=/path/to/worker or build the external worker with 'make build-worker'."
     exit 1
 fi
 

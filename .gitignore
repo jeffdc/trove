@@ -1,3 +1,6 @@
+# OS files
+.DS_Store
+
 # Python
 __pycache__/
 *.py[cod]
@@ -64,7 +67,6 @@ venv.bak/
 *.swp
 *.swo
 *~
-.DS_Store
 
 # OpenCode
 .opencode/
@@ -76,8 +78,9 @@ trove_audit.log
 
 # Build artifacts
 *.log
-worker/worker
 ocaml/_build/
+.gocache/
+.gomodcache/
 
 # Worktrees
 .worktrees/
