@@ -150,6 +150,9 @@ let call t ~op ~args =
           | Domain.Io_error "" -> Domain.Io_error message
           | _ -> we
         in
+        (* If the worker reported a timeout, a goroutine may have leaked.
+           Kill the process so the leak is shed on next call's restart. *)
+        (match we with Domain.Timeout -> kill_worker t | _ -> ());
         Error we
     | exception End_of_file ->
       (* Worker crashed — kill to clean up, will restart on next call *)
