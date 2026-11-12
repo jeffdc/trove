@@ -2,25 +2,25 @@ open Domain
 
 (* ---------- Helpers ---------- *)
 
-let fresh_db () = Db.open_db ":memory:"
+let fresh_db () = Legacy_db_impl.open_db ":memory:"
 
 let make_library db =
-  Db.create_library db ~name:"photos" ~location:"/mnt/photos" ~config_json:"{}"
+  Legacy_db_impl.create_library db ~name:"photos" ~location:"/mnt/photos" ~config_json:"{}"
 
 (** Insert a file record at the given status with an optional md5_hash.
     Returns the file_record (re-fetched so fields reflect updates). *)
 let insert_file_with_status db ~source_path ~status ~md5_hash =
   let fr =
-    Db.insert_file db ~source_path ~source_type:"add" ~file_size:1000
+    Legacy_db_impl.insert_file db ~source_path ~source_type:"add" ~file_size:1000
       ~file_modify_date:"2024-01-01T00:00:00Z"
   in
-  let updates = [("status", Some (Domain.file_status_to_string status))] in
+  let updates = [("status", Some (Legacy_domain.file_status_to_string status))] in
   let updates = match md5_hash with
     | Some h -> ("md5_hash", Some h) :: updates
     | None -> updates
   in
-  Db.update_file db fr.id updates;
-  let records = Db.query_files_by_ids db [ fr.id ] in
+  Legacy_db_impl.update_file db fr.id updates;
+  let records = Legacy_db_impl.query_files_by_ids db [ fr.id ] in
   List.hd records
 
 (* ================================================================== *)
@@ -30,15 +30,15 @@ let insert_file_with_status db ~source_path ~status ~md5_hash =
 let test_empty_db () =
   let db = fresh_db () in
   let lib = make_library db in
-  let plan = Complete.plan_complete db ~library_id:lib.id in
+  let plan = Legacy_complete.plan_complete db ~library_id:lib.id in
   Alcotest.(check int) "imported" 0 (List.length plan.imported);
   Alcotest.(check int) "duplicate" 0 (List.length plan.duplicate);
   Alcotest.(check int) "quarantined" 0 (List.length plan.quarantined);
   Alcotest.(check int) "unaccounted" 0 (List.length plan.unaccounted);
-  let result = Complete.execute_complete db plan in
+  let result = Legacy_complete.execute_complete db plan in
   Alcotest.(check bool) "can_complete" true result.can_complete;
   Alcotest.(check int) "records_cleaned" 0 result.records_cleaned;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* 2. All files imported with matching entries: can_complete = true     *)
@@ -57,22 +57,22 @@ let test_all_imported_with_entries () =
   in
   (* Create matching entries in the library *)
   let _e1 =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/a.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/a.jpg"
       ~file_size:1000 ~md5_hash:(Some "hash_a") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
   let _e2 =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/b.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/b.jpg"
       ~file_size:1000 ~md5_hash:(Some "hash_b") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
-  let plan = Complete.plan_complete db ~library_id:lib.id in
+  let plan = Legacy_complete.plan_complete db ~library_id:lib.id in
   Alcotest.(check int) "imported" 2 (List.length plan.imported);
   Alcotest.(check int) "unaccounted" 0 (List.length plan.unaccounted);
-  let result = Complete.execute_complete db plan in
+  let result = Legacy_complete.execute_complete db plan in
   Alcotest.(check bool) "can_complete" true result.can_complete;
   Alcotest.(check int) "imported_count" 2 result.imported_count;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* 3. Files at discovered/hashed: unaccounted, can_complete = false     *)
@@ -89,14 +89,14 @@ let test_discovered_and_hashed_are_unaccounted () =
     insert_file_with_status db ~source_path:"/src/hash.jpg"
       ~status:Hashed ~md5_hash:(Some "some_hash")
   in
-  let plan = Complete.plan_complete db ~library_id:lib.id in
+  let plan = Legacy_complete.plan_complete db ~library_id:lib.id in
   Alcotest.(check int) "unaccounted" 2 (List.length plan.unaccounted);
   Alcotest.(check int) "imported" 0 (List.length plan.imported);
-  let result = Complete.execute_complete db plan in
+  let result = Legacy_complete.execute_complete db plan in
   Alcotest.(check bool) "can_complete" false result.can_complete;
   Alcotest.(check int) "unaccounted_count" 2 result.unaccounted_count;
   Alcotest.(check int) "records_cleaned" 0 result.records_cleaned;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* 4. Imported file with no matching entry: goes to unaccounted        *)
@@ -110,12 +110,12 @@ let test_imported_no_matching_entry () =
       ~status:Imported ~md5_hash:(Some "orphan_hash")
   in
   (* No entry created for this hash *)
-  let plan = Complete.plan_complete db ~library_id:lib.id in
+  let plan = Legacy_complete.plan_complete db ~library_id:lib.id in
   Alcotest.(check int) "imported" 0 (List.length plan.imported);
   Alcotest.(check int) "unaccounted" 1 (List.length plan.unaccounted);
   Alcotest.(check string) "correct file" "/src/orphan.jpg"
     (List.hd plan.unaccounted).source_path;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* 5. Imported file with no hash: goes to unaccounted                  *)
@@ -128,12 +128,12 @@ let test_imported_no_hash () =
     insert_file_with_status db ~source_path:"/src/nohash.jpg"
       ~status:Imported ~md5_hash:None
   in
-  let plan = Complete.plan_complete db ~library_id:lib.id in
+  let plan = Legacy_complete.plan_complete db ~library_id:lib.id in
   Alcotest.(check int) "imported" 0 (List.length plan.imported);
   Alcotest.(check int) "unaccounted" 1 (List.length plan.unaccounted);
   Alcotest.(check string) "correct file" "/src/nohash.jpg"
     (List.hd plan.unaccounted).source_path;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* 6. execute_complete deletes terminal records                        *)
@@ -156,25 +156,25 @@ let test_execute_deletes_terminal_records () =
   in
   (* Create a matching entry for the imported file *)
   let _e =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/imp.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/imp.jpg"
       ~file_size:1000 ~md5_hash:(Some "h1") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
-  let plan = Complete.plan_complete db ~library_id:lib.id in
+  let plan = Legacy_complete.plan_complete db ~library_id:lib.id in
   Alcotest.(check int) "imported" 1 (List.length plan.imported);
   Alcotest.(check int) "duplicate" 1 (List.length plan.duplicate);
   Alcotest.(check int) "quarantined" 1 (List.length plan.quarantined);
   Alcotest.(check int) "unaccounted" 0 (List.length plan.unaccounted);
-  let result = Complete.execute_complete db plan in
+  let result = Legacy_complete.execute_complete db plan in
   Alcotest.(check bool) "can_complete" true result.can_complete;
   (* Verify all terminal records are deleted *)
-  let remaining_imp = Db.query_files_by_ids db [ fr1.id ] in
-  let remaining_dup = Db.query_files_by_ids db [ fr2.id ] in
-  let remaining_qua = Db.query_files_by_ids db [ fr3.id ] in
+  let remaining_imp = Legacy_db_impl.query_files_by_ids db [ fr1.id ] in
+  let remaining_dup = Legacy_db_impl.query_files_by_ids db [ fr2.id ] in
+  let remaining_qua = Legacy_db_impl.query_files_by_ids db [ fr3.id ] in
   Alcotest.(check int) "imp gone" 0 (List.length remaining_imp);
   Alcotest.(check int) "dup gone" 0 (List.length remaining_dup);
   Alcotest.(check int) "qua gone" 0 (List.length remaining_qua);
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* 7. execute_complete refuses when unaccounted > 0                    *)
@@ -187,15 +187,15 @@ let test_execute_refuses_with_unaccounted () =
     insert_file_with_status db ~source_path:"/src/stuck.jpg"
       ~status:Discovered ~md5_hash:None
   in
-  let plan = Complete.plan_complete db ~library_id:_lib.id in
+  let plan = Legacy_complete.plan_complete db ~library_id:_lib.id in
   Alcotest.(check int) "unaccounted" 1 (List.length plan.unaccounted);
-  let result = Complete.execute_complete db plan in
+  let result = Legacy_complete.execute_complete db plan in
   Alcotest.(check bool) "can_complete" false result.can_complete;
   Alcotest.(check int) "records_cleaned" 0 result.records_cleaned;
   (* Verify file still exists *)
-  let remaining = Db.query_files_by_status db Discovered in
+  let remaining = Legacy_db_impl.query_files_by_status db Discovered in
   Alcotest.(check int) "still there" 1 (List.length remaining);
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* 8. complete_import end-to-end: all imported -> cleans up            *)
@@ -209,18 +209,18 @@ let test_complete_import_end_to_end () =
       ~status:Imported ~md5_hash:(Some "done_hash")
   in
   let _e =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/done.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/done.jpg"
       ~file_size:1000 ~md5_hash:(Some "done_hash") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
-  let result = Complete.complete_import db ~library_id:lib.id in
+  let result = Legacy_complete.complete_import db ~library_id:lib.id in
   Alcotest.(check bool) "can_complete" true result.can_complete;
   Alcotest.(check int) "imported_count" 1 result.imported_count;
   Alcotest.(check int) "unaccounted_count" 0 result.unaccounted_count;
   (* Records should be cleaned *)
-  let remaining = Db.query_files_by_status db Imported in
+  let remaining = Legacy_db_impl.query_files_by_status db Imported in
   Alcotest.(check int) "cleaned up" 0 (List.length remaining);
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* 9. Mixed statuses: imported + duplicate + quarantined + hashed      *)
@@ -235,7 +235,7 @@ let test_mixed_statuses () =
       ~status:Imported ~md5_hash:(Some "imp_h")
   in
   let _e =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/imp.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/imp.jpg"
       ~file_size:1000 ~md5_hash:(Some "imp_h") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
@@ -254,20 +254,20 @@ let test_mixed_statuses () =
     insert_file_with_status db ~source_path:"/src/hashed.jpg"
       ~status:Hashed ~md5_hash:(Some "hashed_h")
   in
-  let plan = Complete.plan_complete db ~library_id:lib.id in
+  let plan = Legacy_complete.plan_complete db ~library_id:lib.id in
   Alcotest.(check int) "imported" 1 (List.length plan.imported);
   Alcotest.(check int) "duplicate" 1 (List.length plan.duplicate);
   Alcotest.(check int) "quarantined" 1 (List.length plan.quarantined);
   Alcotest.(check int) "unaccounted" 1 (List.length plan.unaccounted);
   (* Should not be completable because of the hashed file *)
-  let result = Complete.execute_complete db plan in
+  let result = Legacy_complete.execute_complete db plan in
   Alcotest.(check bool) "can_complete" false result.can_complete;
   Alcotest.(check int) "records_cleaned" 0 result.records_cleaned;
   Alcotest.(check int) "imported_count" 1 result.imported_count;
   Alcotest.(check int) "duplicate_count" 1 result.duplicate_count;
   Alcotest.(check int) "quarantined_count" 1 result.quarantined_count;
   Alcotest.(check int) "unaccounted_count" 1 result.unaccounted_count;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* Test registration                                                   *)

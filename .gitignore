@@ -84,3 +84,8 @@ ocaml/_build/
 
 # Worktrees
 .worktrees/
+
+# SQLite side files and migration reports
+*.db-shm
+*.db-wal
+migration-report-*.json

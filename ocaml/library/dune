@@ -1,0 +1,4 @@
+(library
+ (name library)
+ (libraries domain utils db sqlite3 yojson)
+ (wrapped false))

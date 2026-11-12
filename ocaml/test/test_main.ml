@@ -1,11 +1,12 @@
-let test_version () =
-  Alcotest.(check string) "version" "0.1.0" Trove_lib.version
+let test_domain_loads () =
+  let _ = Domain.Hash_algorithm.Md5 in
+  ()
 
 let () =
-  Alcotest.run "trove"
+  Alcotest.run "domain"
     [
       ( "basics",
         [
-          Alcotest.test_case "version" `Quick test_version;
+          Alcotest.test_case "domain module loads" `Quick test_domain_loads;
         ] );
     ]

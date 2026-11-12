@@ -31,6 +31,24 @@ Use `docs/ocaml-reshape-plan.md` only as the short umbrella roadmap.
 - preserve expensive completed work whenever ownership is trustworthy
 - report ambiguity explicitly instead of guessing through it
 
+## Test Entry Point
+
+Use the rewrite worktree `Makefile` for full OCaml validation:
+
+```bash
+make test-ocaml
+```
+
+Do not rely on bare `dune test` as the default project validation command.
+
+Reason:
+
+- the full suite expects `GROVE_WORKER_PATH` to point at a built `grove`
+  worker binary
+- `make test-ocaml` injects the correct environment
+- bare `dune test` can produce misleading failures that are only missing-worker
+  setup issues
+
 ## Phase 1: Lock The Design Into Code Interfaces
 
 ### Objective

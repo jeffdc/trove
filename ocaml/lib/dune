@@ -1,4 +1,0 @@
-(library
- (name trove_lib)
- (libraries cmdliner sqlite3 yojson unix)
- (wrapped false))

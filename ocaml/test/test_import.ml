@@ -2,17 +2,17 @@ open Domain
 
 (* ---------- Helpers ---------- *)
 
-let fresh_db () = Db.open_db ":memory:"
+let fresh_db () = Legacy_db_impl.open_db ":memory:"
 
 let make_library db =
-  Db.create_library db ~name:"photos" ~location:"/mnt/photos" ~config_json:"{}"
+  Legacy_db_impl.create_library db ~name:"photos" ~location:"/mnt/photos" ~config_json:"{}"
 
 (** Insert a file record in "hashed" state with the given properties.
     Returns the file_record. *)
 let insert_hashed_file db ~source_path ~file_size ~md5_hash ~target_path
     ~capture_date ~camera_model =
   let fr =
-    Db.insert_file db ~source_path ~source_type:"directory"
+    Legacy_db_impl.insert_file db ~source_path ~source_type:"directory"
       ~file_size ~file_modify_date:"2024-01-01T00:00:00Z"
   in
   let updates =
@@ -23,9 +23,9 @@ let insert_hashed_file db ~source_path ~file_size ~md5_hash ~target_path
       ("camera_model", camera_model);
     ]
   in
-  Db.update_file db fr.id updates;
+  Legacy_db_impl.update_file db fr.id updates;
   (* Re-fetch to get updated record *)
-  let records = Db.query_files_by_ids db [ fr.id ] in
+  let records = Legacy_db_impl.query_files_by_ids db [ fr.id ] in
   List.hd records
 
 (* ================================================================== *)
@@ -37,13 +37,13 @@ let test_classify_empty_ids () =
   let db = fresh_db () in
   let lib = make_library db in
   let config = Config.default in
-  let plan = Import.classify_for_import db ~library_id:lib.id [] config in
+  let plan = Legacy_import.classify_for_import db ~library_id:lib.id [] config in
   Alcotest.(check int) "to_import" 0 (List.length plan.to_import);
   Alcotest.(check int) "dup batch" 0 (List.length plan.duplicates_in_batch);
   Alcotest.(check int) "dup lib" 0 (List.length plan.duplicates_in_library);
   Alcotest.(check int) "path_conflicts" 0 plan.path_conflicts;
   Alcotest.(check int) "skipped" 0 (List.length plan.skipped);
-  Db.close db
+  Legacy_db_impl.close db
 
 (* 2. Single file with target_path goes to to_import *)
 let test_classify_single_importable () =
@@ -56,13 +56,13 @@ let test_classify_single_importable () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   Alcotest.(check int) "to_import" 1 (List.length plan.to_import);
   Alcotest.(check int) "skipped" 0 (List.length plan.skipped);
   Alcotest.(check string) "correct file"
     "/src/photo.jpg" (List.hd plan.to_import).source_path;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* 3. File without target_path goes to skipped *)
 let test_classify_no_target_path () =
@@ -75,13 +75,13 @@ let test_classify_no_target_path () =
       ~capture_date:None ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   Alcotest.(check int) "to_import" 0 (List.length plan.to_import);
   Alcotest.(check int) "skipped" 1 (List.length plan.skipped);
   Alcotest.(check string) "correct file"
     "/src/mystery.dat" (List.hd plan.skipped).source_path;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* 4. Two files with same hash: one imports, one is batch duplicate *)
 let test_classify_batch_dedup () =
@@ -99,14 +99,14 @@ let test_classify_batch_dedup () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr1.id; fr2.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr1.id; fr2.id ] config
   in
   Alcotest.(check int) "to_import" 1 (List.length plan.to_import);
   Alcotest.(check int) "dup batch" 1 (List.length plan.duplicates_in_batch);
   (* The one with the lower ID should be the keeper *)
   Alcotest.(check int) "keeper id" fr1.id (List.hd plan.to_import).id;
   Alcotest.(check int) "dup id" fr2.id (List.hd plan.duplicates_in_batch).id;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* 5. File matching existing entry by size+hash is a library duplicate *)
 let test_classify_library_dedup () =
@@ -115,7 +115,7 @@ let test_classify_library_dedup () =
   let config = Config.default in
   (* Create an existing entry in the library *)
   let _entry =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/existing.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/existing.jpg"
       ~file_size:2000 ~md5_hash:(Some "lib_hash") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
@@ -126,12 +126,12 @@ let test_classify_library_dedup () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   Alcotest.(check int) "to_import" 0 (List.length plan.to_import);
   Alcotest.(check int) "dup lib" 1 (List.length plan.duplicates_in_library);
   Alcotest.(check int) "dup id" fr.id (List.hd plan.duplicates_in_library).id;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* 6. File matching entry by size but different hash is NOT a duplicate *)
 let test_classify_same_size_different_hash () =
@@ -140,7 +140,7 @@ let test_classify_same_size_different_hash () =
   let config = Config.default in
   (* Existing entry with size 3000, different hash *)
   let _entry =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/other.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/other.jpg"
       ~file_size:3000 ~md5_hash:(Some "hash_X") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
@@ -150,11 +150,11 @@ let test_classify_same_size_different_hash () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   Alcotest.(check int) "to_import" 1 (List.length plan.to_import);
   Alcotest.(check int) "dup lib" 0 (List.length plan.duplicates_in_library);
-  Db.close db
+  Legacy_db_impl.close db
 
 (* 7. Path conflicts counted correctly *)
 let test_classify_path_conflicts () =
@@ -163,7 +163,7 @@ let test_classify_path_conflicts () =
   let config = Config.default in
   (* Create an entry occupying target path *)
   let _entry =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/conflict.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/conflict.jpg"
       ~file_size:999 ~md5_hash:(Some "whatever") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
@@ -174,11 +174,11 @@ let test_classify_path_conflicts () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   Alcotest.(check int) "to_import" 1 (List.length plan.to_import);
   Alcotest.(check int) "path_conflicts" 1 plan.path_conflicts;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* Helper tests: resolve_target_path                                   *)
@@ -189,45 +189,45 @@ let test_resolve_target_path_no_conflict () =
   let db = fresh_db () in
   let lib = make_library db in
   let resolved =
-    Import.resolve_target_path db ~library_id:lib.id "2024/01/photo.jpg"
+    Legacy_import.resolve_target_path db ~library_id:lib.id "2024/01/photo.jpg"
   in
   Alcotest.(check string) "unchanged" "2024/01/photo.jpg" resolved;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* 13. First conflict: returns stem-1.ext *)
 let test_resolve_target_path_first_conflict () =
   let db = fresh_db () in
   let lib = make_library db in
   let _entry =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/photo.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/photo.jpg"
       ~file_size:100 ~md5_hash:None ~capture_date:None
       ~camera_model:None ~original_path:None
   in
   let resolved =
-    Import.resolve_target_path db ~library_id:lib.id "2024/01/photo.jpg"
+    Legacy_import.resolve_target_path db ~library_id:lib.id "2024/01/photo.jpg"
   in
   Alcotest.(check string) "suffixed" "2024/01/photo-1.jpg" resolved;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* Additional: second conflict returns stem-2.ext *)
 let test_resolve_target_path_second_conflict () =
   let db = fresh_db () in
   let lib = make_library db in
   let _entry1 =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/photo.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/photo.jpg"
       ~file_size:100 ~md5_hash:None ~capture_date:None
       ~camera_model:None ~original_path:None
   in
   let _entry2 =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/photo-1.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/photo-1.jpg"
       ~file_size:100 ~md5_hash:None ~capture_date:None
       ~camera_model:None ~original_path:None
   in
   let resolved =
-    Import.resolve_target_path db ~library_id:lib.id "2024/01/photo.jpg"
+    Legacy_import.resolve_target_path db ~library_id:lib.id "2024/01/photo.jpg"
   in
   Alcotest.(check string) "suffixed" "2024/01/photo-2.jpg" resolved;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* Execution tests: execute_import (DB-level, no real worker)          *)
@@ -249,24 +249,24 @@ let test_execute_marks_batch_duplicates () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr1.id; fr2.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr1.id; fr2.id ] config
   in
   (* We need a mock worker for execute_import. Use the testable version. *)
   let copy_fn ~src:_ ~dst:_ = Ok "dup_hash" in
   let mkdir_fn _path = Ok () in
   let exists_fn _path = Ok false in
   let _summary =
-    Import.execute_import_with_fns db lib config plan
+    Legacy_import.execute_import_with_fns db lib config plan
       ~copy_fn ~mkdir_fn ~exists_fn ()
   in
   (* Check that the batch duplicate file is now marked as duplicate *)
-  let records = Db.query_files_by_ids db [ fr2.id ] in
+  let records = Legacy_db_impl.query_files_by_ids db [ fr2.id ] in
   Alcotest.(check int) "one record" 1 (List.length records);
   let status_str =
-    file_status_to_string (List.hd records).status
+    Legacy_domain.file_status_to_string (List.hd records).status
   in
   Alcotest.(check string) "marked duplicate" "duplicate" status_str;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* 9. Marks library duplicates in DB *)
 let test_execute_marks_library_duplicates () =
@@ -275,7 +275,7 @@ let test_execute_marks_library_duplicates () =
   let config = Config.default in
   (* Existing entry in library *)
   let _entry =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/existing.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/existing.jpg"
       ~file_size:2000 ~md5_hash:(Some "lib_dup") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
@@ -285,22 +285,22 @@ let test_execute_marks_library_duplicates () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   let copy_fn ~src:_ ~dst:_ = Ok "lib_dup" in
   let mkdir_fn _path = Ok () in
   let exists_fn _path = Ok false in
   let _summary =
-    Import.execute_import_with_fns db lib config plan
+    Legacy_import.execute_import_with_fns db lib config plan
       ~copy_fn ~mkdir_fn ~exists_fn ()
   in
-  let records = Db.query_files_by_ids db [ fr.id ] in
+  let records = Legacy_db_impl.query_files_by_ids db [ fr.id ] in
   Alcotest.(check int) "one record" 1 (List.length records);
   let status_str =
-    file_status_to_string (List.hd records).status
+    Legacy_domain.file_status_to_string (List.hd records).status
   in
   Alcotest.(check string) "marked duplicate" "duplicate" status_str;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* 10. Copies file and creates entry *)
 let test_execute_copies_and_creates_entry () =
@@ -313,7 +313,7 @@ let test_execute_copies_and_creates_entry () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   (* Track calls *)
   let copy_calls = ref [] in
@@ -328,7 +328,7 @@ let test_execute_copies_and_creates_entry () =
   in
   let exists_fn _path = Ok false in
   let summary =
-    Import.execute_import_with_fns db lib config plan
+    Legacy_import.execute_import_with_fns db lib config plan
       ~copy_fn ~mkdir_fn ~exists_fn ()
   in
   Alcotest.(check int) "imported" 1 summary.imported;
@@ -340,19 +340,19 @@ let test_execute_copies_and_creates_entry () =
   Alcotest.(check string) "copy dst" "/mnt/photos/2024/01/new.jpg" dst;
   (* Verify entry was created *)
   let entry =
-    Db.get_entry_by_path db ~library_id:lib.id ~relative_path:"2024/01/new.jpg"
+    Legacy_db_impl.get_entry_by_path db ~library_id:lib.id ~relative_path:"2024/01/new.jpg"
   in
   Alcotest.(check bool) "entry exists" true (Option.is_some entry);
   let entry = Option.get entry in
   Alcotest.(check int) "entry size" 5000 entry.file_size;
   Alcotest.(check string) "entry hash" "new_hash" (Option.get entry.md5_hash);
   (* Verify file record marked as imported *)
-  let records = Db.query_files_by_ids db [ fr.id ] in
+  let records = Legacy_db_impl.query_files_by_ids db [ fr.id ] in
   let status_str =
-    file_status_to_string (List.hd records).status
+    Legacy_domain.file_status_to_string (List.hd records).status
   in
   Alcotest.(check string) "marked imported" "imported" status_str;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* 11. resolve_target_path suffixes on conflict during execution *)
 let test_execute_resolves_path_conflict () =
@@ -361,7 +361,7 @@ let test_execute_resolves_path_conflict () =
   let config = Config.default in
   (* Existing entry occupying the target path *)
   let _entry =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/photo.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/photo.jpg"
       ~file_size:999 ~md5_hash:(Some "old_hash") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
@@ -371,7 +371,7 @@ let test_execute_resolves_path_conflict () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   let copy_calls = ref [] in
   let copy_fn ~src ~dst =
@@ -381,7 +381,7 @@ let test_execute_resolves_path_conflict () =
   let mkdir_fn _path = Ok () in
   let exists_fn _path = Ok false in
   let summary =
-    Import.execute_import_with_fns db lib config plan
+    Legacy_import.execute_import_with_fns db lib config plan
       ~copy_fn ~mkdir_fn ~exists_fn ()
   in
   Alcotest.(check int) "imported" 1 summary.imported;
@@ -390,11 +390,11 @@ let test_execute_resolves_path_conflict () =
   Alcotest.(check string) "suffixed dst" "/mnt/photos/2024/01/photo-1.jpg" dst;
   (* Entry should be at the suffixed path *)
   let entry =
-    Db.get_entry_by_path db ~library_id:lib.id
+    Legacy_db_impl.get_entry_by_path db ~library_id:lib.id
       ~relative_path:"2024/01/photo-1.jpg"
   in
   Alcotest.(check bool) "entry at suffixed path" true (Option.is_some entry);
-  Db.close db
+  Legacy_db_impl.close db
 
 (* Copy failure increments errors and continues *)
 let test_execute_copy_failure () =
@@ -407,18 +407,18 @@ let test_execute_copy_failure () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   let copy_fn ~src:_ ~dst:_ = Error (Domain.Io_error "disk full") in
   let mkdir_fn _path = Ok () in
   let exists_fn _path = Ok false in
   let summary =
-    Import.execute_import_with_fns db lib config plan
+    Legacy_import.execute_import_with_fns db lib config plan
       ~copy_fn ~mkdir_fn ~exists_fn ()
   in
   Alcotest.(check int) "imported" 0 summary.imported;
   Alcotest.(check int) "errors" 1 summary.errors;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* Hash mismatch after copy increments errors *)
 let test_execute_hash_mismatch () =
@@ -431,19 +431,19 @@ let test_execute_hash_mismatch () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   (* copy_and_hash returns a different hash *)
   let copy_fn ~src:_ ~dst:_ = Ok "wrong_hash" in
   let mkdir_fn _path = Ok () in
   let exists_fn _path = Ok false in
   let summary =
-    Import.execute_import_with_fns db lib config plan
+    Legacy_import.execute_import_with_fns db lib config plan
       ~copy_fn ~mkdir_fn ~exists_fn ()
   in
   Alcotest.(check int) "imported" 0 summary.imported;
   Alcotest.(check int) "errors" 1 summary.errors;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* Orphan recovery: file exists at dest with matching hash, skip copy *)
 let test_execute_orphan_recovery () =
@@ -456,7 +456,7 @@ let test_execute_orphan_recovery () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id [ fr.id ] config
+    Legacy_import.classify_for_import db ~library_id:lib.id [ fr.id ] config
   in
   let copy_called = ref false in
   let copy_fn ~src:_ ~dst:_ =
@@ -469,12 +469,12 @@ let test_execute_orphan_recovery () =
   (* We need a hash function for the existing file at dest *)
   let hash_fn _path = Ok "orphan_hash" in
   let summary =
-    Import.execute_import_with_fns db lib config plan
+    Legacy_import.execute_import_with_fns db lib config plan
       ~copy_fn ~mkdir_fn ~exists_fn ~hash_fn ()
   in
   Alcotest.(check int) "imported" 1 summary.imported;
   Alcotest.(check bool) "copy not called" false !copy_called;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* Summary counts are correct for mixed plan *)
 let test_execute_summary_counts () =
@@ -483,7 +483,7 @@ let test_execute_summary_counts () =
   let config = Config.default in
   (* Existing entry for library dedup *)
   let _entry =
-    Db.create_entry db ~library_id:lib.id ~relative_path:"2024/01/old.jpg"
+    Legacy_db_impl.create_entry db ~library_id:lib.id ~relative_path:"2024/01/old.jpg"
       ~file_size:2000 ~md5_hash:(Some "lib_h") ~capture_date:None
       ~camera_model:None ~original_path:None
   in
@@ -512,7 +512,7 @@ let test_execute_summary_counts () =
       ~capture_date:(Some "2024-01-15") ~camera_model:None
   in
   let plan =
-    Import.classify_for_import db ~library_id:lib.id
+    Legacy_import.classify_for_import db ~library_id:lib.id
       [ fr1.id; fr2.id; fr3.id; fr4.id ] config
   in
   let mkdir_fn _path = Ok () in
@@ -523,14 +523,14 @@ let test_execute_summary_counts () =
     else Ok "unknown"
   in
   let summary =
-    Import.execute_import_with_fns db lib config plan
+    Legacy_import.execute_import_with_fns db lib config plan
       ~copy_fn ~mkdir_fn ~exists_fn ()
   in
   Alcotest.(check int) "dup_in_batch" 1 summary.dup_in_batch;
   Alcotest.(check int) "dup_in_library" 1 summary.dup_in_library;
   (* fr2 is the batch dup (higher id), fr1 and the keeper of fr2/fr3 import *)
   Alcotest.(check int) "imported" 2 summary.imported;
-  Db.close db
+  Legacy_db_impl.close db
 
 (* ================================================================== *)
 (* Test registration                                                   *)

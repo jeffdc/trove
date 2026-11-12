@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+OCAML_DIR="$ROOT_DIR/ocaml"
+DEFAULT_WORKER_BIN="$ROOT_DIR/../../../grove/worker"
+
+if [ -z "${GROVE_WORKER_PATH:-}" ]; then
+  if [ -n "${WORKER_BIN:-}" ]; then
+    export GROVE_WORKER_PATH="$WORKER_BIN"
+  else
+    export GROVE_WORKER_PATH="$DEFAULT_WORKER_BIN"
+  fi
+fi
+
+if [ ! -x "$GROVE_WORKER_PATH" ]; then
+  echo "Error: worker binary not found at $GROVE_WORKER_PATH" >&2
+  echo "Set GROVE_WORKER_PATH=/path/to/grove/worker or WORKER_BIN=/path/to/grove/worker." >&2
+  exit 1
+fi
+
+cd "$OCAML_DIR"
+exec opam exec --switch=5.3.0 -- dune exec ./bin/main.exe -- "$@"

@@ -1,4 +1,8 @@
 (tests
- (names test_main test_domain test_worker_client test_db test_config
-        test_pipeline test_import test_init test_complete)
- (libraries trove_lib alcotest))
+ (names test_main test_domain test_worker_client test_worker_client_start
+        test_db test_config test_pipeline test_import test_init test_complete
+        test_legacy_db test_migration_report
+        test_migrate_libraries test_migrate_entries test_migrate_files
+        test_migrate_reconcile test_migrator test_runtime
+        test_import_target test_init_target test_utils)
+ (libraries domain utils db library migration alcotest str))

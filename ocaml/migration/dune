@@ -1,0 +1,4 @@
+(library
+ (name migration)
+ (libraries domain utils db library sqlite3 yojson)
+ (wrapped false))

@@ -1,0 +1,4 @@
+(library
+ (name utils)
+ (libraries domain cmdliner yojson unix)
+ (wrapped false))
