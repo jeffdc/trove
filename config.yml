@@ -2,5 +2,22 @@ format: 2
 integration: main
 release: main
 remote: origin
-done_checks: []
-layers: {}
+done_checks:
+    - make done-checks
+layers:
+    cli:
+        - src/trove/cli.py
+        - src/trove/cli_helpers.py
+        - src/trove/progress.py
+        - src/trove/report.py
+    core:
+        - src/trove/**
+    docs:
+        - docs/**
+        - trove-spec.md
+        - AGENTS.md
+    ocaml:
+        - ocaml/**
+        - scripts/**
+    tests:
+        - tests/**
