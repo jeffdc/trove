@@ -1,0 +1,87 @@
+---
+status: refined
+created: 2026-05-06
+updated: 2026-05-06
+relates: [27c2, 1f53]
+---
+
+# Preserve Finder Date Created during import + backfill command
+
+Context for the Go-worker / OCaml-app rewrite (27c2). The Python codebase
+gained two changes that the rewrite must reproduce so library state stays
+intact across the cutover.
+
+## Behaviors to preserve
+
+### 1. `os.utime` on import copies
+`copy_file_and_hash` (src/trove/timeout.py) calls `os.utime(dest, ns=(atime,
+mtime))` after the chunked copy completes, so the destination file inherits
+the source's atime/mtime. Without this, every import would reset filesystem
+timestamps to the copy moment. The Go worker that owns file copies must do
+the equivalent (`os.Chtimes` after a successful copy+verify).
+
+### 2. Stamp Finder Date Created from `capture_date`
+After a successful import, the importer calls `stamp_creation_date(dest_path,
+capture_date)` (src/trove/fs_dates.py). On macOS this shells out to
+`/usr/bin/SetFile -d <MM/DD/YYYY HH:MM:SS> <path>`, which the kernel turns
+into `setattrlist(ATTR_CMN_CRTIME)`. Over SMB this is a single
+SET_FILE_BASIC_INFO RPC — pure metadata, no data transfer. NFSv3 has no
+creation-date attribute, so the call silently no-ops there.
+
+The "set creation date" capability is platform-specific. The OCaml app
+layer should expose this as a worker RPC so non-macOS hosts can omit it
+without ifdefs scattered through the import path.
+
+## New CLI command: `fix-created-dates`
+
+Backfill for libraries that were imported before this feature existed.
+
+- `trove fix-created-dates <name>` — dry-run preview (default).
+- `--apply --yes` — actually stamp.
+- `--workers N` — concurrent SetFile invocations (default 8). Network-bound
+  metadata RPCs scale linearly with concurrency.
+- `--force` — re-stamp entries that have already been stamped.
+
+The rewrite needs an equivalent backfill command, since the schema marker
+(below) is set per-entry and a fresh OCaml binary running against an
+existing DB will see all old entries as unstamped.
+
+## Schema change (relates 1f53)
+
+New table:
+
+```sql
+CREATE TABLE entries_creation_date_stamped (
+    entry_id INTEGER PRIMARY KEY REFERENCES entries(id) ON DELETE CASCADE,
+    stamped_at TEXT NOT NULL
+);
+```
+
+Migration #3 in src/trove/db.py. Used to skip already-processed entries on
+repeat backfill runs and to mark entries automatically when the importer
+stamps them on first import.
+
+If 1f53 replaces the entries table with a run-centric schema, this marker
+should fold into whatever per-file durable state replaces it (e.g., a
+`finder_creation_date_stamped_at` column on the new file/run record). Don't
+carry the side-table forward — it only exists because adding a column to
+the legacy entries table felt heavier than a join.
+
+## Files touched
+
+- src/trove/fs_dates.py (new) — `set_creation_date`, `stamp_creation_date`
+- src/trove/db.py — table, migration, methods
+- src/trove/importer.py — call stamp + mark on success
+- src/trove/cli.py — `fix-created-dates` command, ThreadPoolExecutor parallelism
+- src/trove/timeout.py — `copy_file_and_hash` preserves source mtime via os.utime
+
+## Notes on the SetFile dependency
+
+`/usr/bin/SetFile` is provided by Xcode Command Line Tools and is
+technically deprecated. The kernel-level replacement is `setattrlist` via
+ctypes or `NSURL setResourceValue:forKey:NSURLCreationDateKey` via PyObjC.
+NAS behavior (SMB works, NFSv3 doesn't) is identical regardless of which
+caller you use — it's determined by the protocol, not the binary. The Go
+rewrite can use `syscall.Setattrlist` directly and avoid the CLT
+dependency.
+
