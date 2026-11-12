@@ -1,0 +1,14 @@
+{
+  "tree": "0cc1766d9e660d5029fa009246a76294202523ae",
+  "commit": "2d4e0cf298fe9568e783b587e70617b09f175d51",
+  "at": "2026-11-12T01:16:13Z",
+  "by": "/Users/jeff/dev/trove",
+  "passed": true,
+  "results": [
+    {
+      "command": "make done-checks",
+      "exit": 0,
+      "duration_ms": 1758
+    }
+  ]
+}
